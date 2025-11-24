@@ -1,0 +1,23 @@
+---
+title: "re1"
+format: html
+editor: visual
+---
+
+# How to improve the model
+The model used in chapter 6 is a simple Growing Degree Day (GDD) model. It assumes that temperature is the only driver of spring leaf-out. Once the daily temperature exceeds a base threshold (Tbase), the plant accumulates "heat units." When the bucket of heat units is full (F∗), leaves appear.
+
+## Dormancy
+Vegetation have a sleep mode called dormancy to protect themselves from winter. This prevent them to respond to warmth until they have experienced enough cold weather (chilling) to wake up. Including this dormancy parameter prevents the model from predicting leaf-out during warm days in early winter. The heat budget is locked until the cold budget is full.
+
+In order to apply this to the model, we could add a a rule where GDD accumulation only starts after a certain number of cold days have passed. 
+
+## Soil temperature
+The current model uses air temperature but vegetation have roots in the ground which is warming up slower that than air. Roots need to be active to pump water up to the buds before the leaves can expand. If the soil is still frozen, the roots can't function, even if the air is warm.
+
+The model could be improved by also estimating soil temperature considering that it is often a lagged and damped version of air temperature.
+
+## Photoperiod 
+Temperatures varies greatly year to year but the length of the day is perfectly consistent and vegetation usually use day length like a calendar. It helps the plant distinguish between a warm day in February (short days) and a warm day in May (long days) for example. 
+
+We can implement this by modifying the critical threshold (F*). Plants need less less heat to leaf out if the days are very long (late spring), but more heat if the days are short (early spring).
