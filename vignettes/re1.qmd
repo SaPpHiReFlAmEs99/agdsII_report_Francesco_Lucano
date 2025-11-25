@@ -4,6 +4,8 @@ format: html
 editor: visual
 ---
 
+# Setup
+
 ```{r}
 library(geosphere)
 library(phenocamr)
@@ -12,7 +14,14 @@ library(GenSA)
 library(dplyr)
 library(readr)
 library(lubridate)
+library(terra)
 
+if (!dir.exists(here("data"))) {
+  dir.create(here("data"))
+}
+```
+
+```{r}
 # Download the data
 phenocamr::download_phenocam(
   site = "harvard$",      
@@ -73,24 +82,29 @@ print(head(harvard_phenology))
 ```
 
 # How to improve the model
+
 The model used in chapter 6 is a simple Growing Degree Day (GDD) model. It assumes that temperature is the only driver of spring leaf-out. Once the daily temperature exceeds a base threshold (Tbase), the plant accumulates "heat units." When the bucket of heat units is full (F∗), leaves appear.
 
 ## Dormancy
+
 Vegetation have a sleep mode called dormancy to protect themselves from winter. This prevent them to respond to warmth until they have experienced enough cold weather (chilling) to wake up. Including this dormancy parameter prevents the model from predicting leaf-out during warm days in early winter. The heat budget is locked until the cold budget is full.
 
-In order to apply this to the model, we could add a a rule where GDD accumulation only starts after a certain number of cold days have passed. 
+In order to apply this to the model, we could add a a rule where GDD accumulation only starts after a certain number of cold days have passed.
 
 ## Soil temperature
+
 The current model uses air temperature but vegetation have roots in the ground which is warming up slower that than air. Roots need to be active to pump water up to the buds before the leaves can expand. If the soil is still frozen, the roots can't function, even if the air is warm.
 
 The model could be improved by also estimating soil temperature considering that it is often a lagged and damped version of air temperature.
 
-## Photoperiod 
-Temperatures varies greatly year to year but the length of the day is perfectly consistent and vegetation usually use day length like a calendar. It helps the plant distinguish between a warm day in February (short days) and a warm day in May (long days) for example. 
+## Photoperiod
 
-We can implement this by modifying the critical threshold (F*). Plants need less heat to leaf out if the days are very long (late spring), but more heat if the days are short (early spring).
+Temperatures varies greatly year to year but the length of the day is perfectly consistent and vegetation usually use day length like a calendar. It helps the plant distinguish between a warm day in February (short days) and a warm day in May (long days) for example.
+
+We can implement this by modifying the critical threshold (F\*). Plants need less heat to leaf out if the days are very long (late spring), but more heat if the days are short (early spring).
 
 # The basic GGD model
+
 ```{r}
 gdd_model <- function(par, temp) {
   
@@ -113,17 +127,20 @@ gdd_model <- function(par, temp) {
 }
 ```
 
-# Adding photoperiod 
+# Adding photoperiod
+
 Now we want to improve the model by adding the photoperiod. The concept is that if the days are long (late spring), trees lower their defense mechanisms and need less heat to leaf out.
 
 To implement this, we need two things:
 
-    Data: We need to know the day length (in hours) for every day of the year.
+-   Data: We need to know the day length (in hours) for every day of the year.
 
-    Math: We need a formula where longer days make the threshold (Fcrit) smaller.
+-   Math: We need a formula where longer days make the threshold (Fcrit) smaller.
 
 ## Calculating the day length
-The length of the day depends on latitude and the day of the year. We can use the geosphere package for this. 
+
+The length of the day depends on latitude and the day of the year. We can use the geosphere package for this.
+
 ```{r}
 # As an example, we calculate day length for Harvard Forest for all 365 days
 doy_vector <- 1:365
@@ -134,6 +151,7 @@ plot(day_length, type='l', ylab="Hours of Daylight", xlab="Day of Year")
 ```
 
 ## Photoperiod GDD model
+
 ```{r}
 # The Photoperiod GDD Model
 model_photoperiod <- function(par, temp, latitude = 42.5) {
@@ -164,6 +182,7 @@ model_photoperiod <- function(par, temp, latitude = 42.5) {
 ```
 
 ## The cost function
+
 ```{r}
 # Define the Cost Function
 rmse_photoperiod <- function(par, data) {
@@ -193,6 +212,7 @@ rmse_photoperiod <- function(par, data) {
 ```
 
 ## Optimization of the RMSE
+
 ```{r}
 # 1. Package the data for the function
 data_for_optim <- list(
@@ -226,5 +246,53 @@ print(paste("T_base:", round(best_pars[1], 2)))
 print(paste("F_crit:", round(best_pars[2], 2)))
 print(paste("k_photo:", round(best_pars[3], 2)))
 print(paste("Final RMSE:", round(optim_result$value, 3)))
+```
+
+# Spatial scaling
+
+Now that we have the optimal parameters we need to apply this model to a map of temperature to observe the predicted leaf-out dates across the New England region. In order to do this we need to download the gridded daily temperature for the region and then run the `model_photoperiod` function on every pixel of that map.
+
+```{r}
+# 1. Download the temperature raster data
+dest_file <- here("data", "daymet_2012_subset.nc")
+
+if (!file.exists(dest_file)) {
+  download.file(
+    url = "https://github.com/fabern/handfull_of_pixels/raw/refs/heads/main/data/DAYMET.004_2012/DAYMET.004_1km_aid0001.nc",
+    destfile = dest_file,
+    mode = "wb"
+  )
+}
+
+# 2. Load and prepare the data
+r_daymet <- terra::rast(dest_file)
+
+# We calculate the Tmean for the map
+tmean_map <- (r_daymet["tmax"] + r_daymet["tmin"]) / 2
+
+# We limit to the first 180 days to save processing time because spring phenology happens in the first half of the year
+tmean_map <- subset(tmean_map, 1:180)
+
+# 4. Apply the model
+# We use the parameters found in the optimization
+my_best_par <- c(3.23, 333.25, 8.3) 
+
+# We apply the 'model_photoperiod' function to every pixel
+predicted_map <- terra::app(
+  x = tmean_map,           # The temperature layers
+  fun = model_photoperiod, # The custom function
+  par = my_best_par,       # The optimized parameters
+  latitude = 43.0          # The latitude for the Boston region
+)
+
+minmax(predicted_map) # We check the minimum and the maximum values
+```
+
+```{r}
+# 5. Result visualization 
+plot(predicted_map, 
+     main = "Predicted leaf-out date (Day of Year)", 
+     #col = map.pal("viridis", 100),
+     range = c(100, 150)) 
 ```
 
