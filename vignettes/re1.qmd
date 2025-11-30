@@ -15,6 +15,10 @@ library(dplyr)
 library(readr)
 library(lubridate)
 library(terra)
+library(MODISTools)
+library(ggplot2)
+library(tidyterra)
+library(patchwork)
 
 if (!dir.exists(here("data"))) {
   dir.create(here("data"))
@@ -35,13 +39,13 @@ phenocamr::download_phenocam(
 ```
 
 ```{r}
-# 1. Read the data. We use "#" to skip the metadata lines at the top of the file
+# Read the data. We use "#" to skip the metadata lines at the top of the file
 harvard_phenocam_data <- read_csv(
   here("data", "harvard_DB_1000_3day.csv"),
   comment = "#"
 )
 
-# 2. Create 'harvard_temp' (calculate Tmean)
+# Create 'harvard_temp' (calculate Tmean)
 harvard_temp <- harvard_phenocam_data %>%
   mutate(date = as.Date(date)) %>%
   mutate(year = as.numeric(format(date, "%Y"))) %>%
@@ -49,33 +53,36 @@ harvard_temp <- harvard_phenocam_data %>%
   mutate(
     tmean = (tmax..deg.c. + tmin..deg.c.) / 2
   ) %>%
+  mutate(
+    gdd = cumsum(ifelse(tmean >= 5, tmean - 5, 0))
+  ) %>%
   ungroup() %>%
-  select(date, year, tmean)
+  select(date, year, tmean, gdd)
 
 # Check the result
 head(harvard_temp)
 ```
 
 ```{r}
-# 1. Read the data
+# Read the data
 harvard_phenocam_data_transition <- read_csv(
   here("data", "harvard_DB_1000_3day_transition_dates.csv"),
   comment = "#"
 )
 
 harvard_phenology <- harvard_phenocam_data_transition %>%
-  # 2. Filter for the start of spring (rising greenness)
+  # Filter for the start of spring (rising greenness)
   filter(direction == "rising", gcc_value == "gcc_90") %>%
   
-  # 3. Create the 'year' and 'doy' columns from the date
+  # Create the 'year' and 'doy' columns from the date
   mutate(
     trans_date = as.Date(transition_25),         # Convert text to date
     year = as.numeric(format(trans_date, "%Y")), # Extract year 
     doy = as.numeric(format(trans_date, "%j"))   # Extract day of year 
   ) %>%
   
-  # 4. Select only what we need for the model
-  select(year, doy)
+  # Select only what we need for the model
+  select(year, doy, transition_25, threshold_25)
 
 # Check the result 
 print(head(harvard_phenology))
@@ -108,18 +115,18 @@ We can implement this by modifying the critical threshold (F\*). Plants need les
 ```{r}
 gdd_model <- function(par, temp) {
   
-  # 1. We unpack the parameters (for readability)
+  # We unpack the parameters (for readability)
   t_base <- par[1]  # The base temperature (like 5°C)
   f_crit <- par[2]  # The critical heat threshold (like 300 GDD)
   
-  # 2. We calculate daily heat units (forcing). If temp > t_base, we accumulate heat. If colder, we accumulate 0.
+  # We calculate daily heat units (forcing). If temp > t_base, we accumulate heat. If colder, we accumulate 0.
   # We use pmax() which is a faster version of ifelse() for vectors.
   daily_forcing <- pmax(0, temp - t_base)
   
-  # 3. We calculate the state of forcing (cumulative sum). This creates a running total of heat for every day of the year.
+  # We calculate the state of forcing (cumulative sum). This creates a running total of heat for every day of the year.
   accumulated_forcing <- cumsum(daily_forcing)
   
-  # 4. We find the trigger day. Leaf-out happens when accumulated heat >= treshold 
+  # We find the trigger day. Leaf-out happens when accumulated heat >= treshold 
   # We take the first one ([1]) using which().
   doy <- which(accumulated_forcing >= f_crit)[1]
   
@@ -137,44 +144,33 @@ To implement this, we need two things:
 
 -   Math: We need a formula where longer days make the threshold (Fcrit) smaller.
 
-## Calculating the day length
+## Photoperiod GDD model
 
 The length of the day depends on latitude and the day of the year. We can use the geosphere package for this.
 
 ```{r}
-# As an example, we calculate day length for Harvard Forest for all 365 days
-doy_vector <- 1:365
-day_length <- daylength(lat = 90, doy = doy_vector)
-
-# Let's visualize it to make sure it makes sense (Should peak in June)
-plot(day_length, type='l', ylab="Hours of Daylight", xlab="Day of Year")
-```
-
-## Photoperiod GDD model
-
-```{r}
 # The Photoperiod GDD Model
-model_photoperiod <- function(par, temp, latitude = 42.5) {
+model_photoperiod <- function(par, temp, latitude = 42.536669726040884) {
   
-  # 1. Unpack Parameters. Now we have 3 parameters to optimize
+  # We unpack the parameters. Now we have 3 parameters to optimize
   t_base <- par[1]      # Base temperature
   f_crit <- par[2]      # Heat treshold 
   k_photo <- par[3]     # Photoperiod sensitivity
   
-  # 2. We calculate daily heat units
+  # We calculate daily heat units
   daily_forcing <- pmax(0, temp - t_base)
   
-  # 3. We calculate accumulated heat 
+  # We calculate accumulated heat 
   accumulated_forcing <- cumsum(daily_forcing)
   
-  # 4. We calculate the day length for every day of the year (length of temp vector)
+  # We calculate the day length for every day of the year (length of temp vector)
   doy_vector <- 1:length(temp) 
   day_len <- geosphere::daylength(lat = latitude, doy = doy_vector)
   
-  # 5. We define the Variable threshold. The threshold changes every day. Longer days = lower threshold.
+  # We define the Variable threshold. The threshold changes every day. Longer days = lower threshold.
   daily_threshold <- f_crit - (k_photo * day_len)
   
-  # 6. We finally find the trigger day.
+  # We finally find the trigger day.
   doy <- which(accumulated_forcing >= daily_threshold)[1]
   
   return(doy)
@@ -184,14 +180,14 @@ model_photoperiod <- function(par, temp, latitude = 42.5) {
 ## The cost function
 
 ```{r}
-# Define the Cost Function
+# We define the cost function
 rmse_photoperiod <- function(par, data) {
   
-  # 1. drivers = temp, validation = observed dates
+  # drivers = temp, validation = observed dates
   drivers <- data$drivers
   validation <- data$validation
   
-  # 2. We Run the model for every year in the driver data. This creates a dataframe of "year" and "pred" (predicted doy)
+  # We run the model for every year in the driver data. This creates a dataframe of "year" and "pred" (predicted doy)
   predictions <- drivers %>%
     group_by(year) %>%
     summarise(
@@ -201,10 +197,10 @@ rmse_photoperiod <- function(par, data) {
       )
     )
   
-  # 3. We compare to reality by joining predictions with the 'validation' data (observed 'doy')
+  # We compare to reality by joining predictions with the 'validation' data (observed 'doy')
   comparison <- left_join(predictions, validation, by = "year")
   
-  # 4. Walculate RMSE 
+  # We calculate the RMSE 
   rmse <- sqrt(mean((comparison$pred - comparison$doy)^2, na.rm = TRUE))
   
   return(rmse)
@@ -214,21 +210,21 @@ rmse_photoperiod <- function(par, data) {
 ## Optimization of the RMSE
 
 ```{r}
-# 1. Package the data for the function
+# We set up the data for the function
 data_for_optim <- list(
   drivers = harvard_temp,
   validation = harvard_phenology
 )
 
-# 2. We define the lower and upper boundaries of the 3 parameters
+# We define the lower and upper boundaries of the 3 parameters
 #                 T_base,  F_crit,  k_photo
-lower_bounds <- c(   -5,      50,       0)
+lower_bounds <- c(   0,      50,       0)
 upper_bounds <- c(   10,     500,      20)
 
-# 3. First guess
+# First guess
 start_par <- c(0, 200, 5) 
 
-# 4. We run the optimization
+# We run the optimization
 optim_result <- GenSA(
   par = start_par,
   fn = rmse_photoperiod,    # Our cost function
@@ -238,7 +234,7 @@ optim_result <- GenSA(
   data = data_for_optim     
 )
 
-# 5. Extract the best parameters
+# We extract the best parameters
 best_pars <- optim_result$par
 
 print("Optimal parameters:")
@@ -253,7 +249,7 @@ print(paste("Final RMSE:", round(optim_result$value, 3)))
 Now that we have the optimal parameters we need to apply this model to a map of temperature to observe the predicted leaf-out dates across the New England region. In order to do this we need to download the gridded daily temperature for the region and then run the `model_photoperiod` function on every pixel of that map.
 
 ```{r}
-# 1. Download the temperature raster data
+# We download the temperature raster data
 dest_file <- here("data", "daymet_2012_subset.nc")
 
 if (!file.exists(dest_file)) {
@@ -264,7 +260,7 @@ if (!file.exists(dest_file)) {
   )
 }
 
-# 2. Load and prepare the data
+# We load and prepare the data
 r_daymet <- terra::rast(dest_file)
 
 # We calculate the Tmean for the map
@@ -273,26 +269,122 @@ tmean_map <- (r_daymet["tmax"] + r_daymet["tmin"]) / 2
 # We limit to the first 180 days to save processing time because spring phenology happens in the first half of the year
 tmean_map <- subset(tmean_map, 1:180)
 
-# 4. Apply the model
-# We use the parameters found in the optimization
+# 4. We apply the model to every pixel and We use the parameters found in the optimization
 my_best_par <- c(3.23, 333.25, 8.3) 
-
-# We apply the 'model_photoperiod' function to every pixel
 predicted_map <- terra::app(
   x = tmean_map,           # The temperature layers
-  fun = model_photoperiod, # The custom function
-  par = my_best_par,       # The optimized parameters
-  latitude = 43.0          # The latitude for the Boston region
+  fun = function(x) { 
+    model_photoperiod(par = my_best_par, temp = x, latitude = 42.536669726040884)
+  }
+  #fun = model_photoperiod, # The custom function
+  #par = my_best_par,       # The optimized parameters
+  #latitude = 43.0          # The latitude for the Boston region
 )
 
 minmax(predicted_map) # We check the minimum and the maximum values
 ```
 
 ```{r}
-# 5. Result visualization 
+# Result visualization 
 plot(predicted_map, 
      main = "Predicted leaf-out date (Day of Year)", 
      #col = map.pal("viridis", 100),
      range = c(100, 150)) 
+```
+
+# Qualitative validation
+
+For the qualitative comparison with the 2012 map of predicted result from our photoperiod model, we used the MODIS MCD12Q2 land cover dynamics product, developed by Boston University. We specifically analyzed the 'Greenup_1' band, which indicates the date of the start of the first vegetation cycle, defined as the point where EVI2 crosses 15% of the seasonal amplitude. The raw data provided in 'days since 1970-01-01' was converted to Day of Year (DOY) for comparison with our model. Fill values (32767) representing water or barren land were filtered out.
+
+```{r}
+# We define 3 tiles to cover the full latitude range because the API only allows 100x100km max tile size andWe define a list to loop through them.
+tiles <- list(
+  north  = list(lat = 43.8, lon = -71.0, file = here("data", "modis_north.csv")),
+  middle = list(lat = 43.0, lon = -71.0, file = here("data", "modis_middle.csv")),
+  south  = list(lat = 42.2, lon = -71.0, file = here("data", "modis_south.csv"))
+)
+
+# We iterate through the list. For every tile, we check if the file already exists.
+for (tile_name in names(tiles)) {
+  
+  tile <- tiles[[tile_name]]
+  
+  if (!file.exists(tile$file)) {
+    message(paste("Downloading tile:", tile_name))
+    
+    subset_data <- MODISTools::mt_subset(
+      product = "MCD12Q2",
+      band = "Greenup.Num_Modes_01", 
+      lat = tile$lat,
+      lon = tile$lon,
+      start = "2012-01-01",
+      end = "2012-12-31",
+      km_lr = 100, 
+      km_ab = 100, 
+      site_name = "NewEngland",
+      internal = TRUE,
+      progress = FALSE
+    )
+    write_csv(subset_data, tile$file)
+  }
+}
+```
+
+```{r}
+# We create a function to use it for every CSV file
+process_modis_tile <- function(file_path) {
+  
+  # Read the CSV
+  raw <- read_csv(file_path, show_col_types = FALSE)
+  df  <- as.data.frame(raw) # Convert to standard data.frame for MODISTools
+  
+  # Data cleaning : we filter fill Values (32767 indicates no data)
+  df$value <- ifelse(df$value > 32766, NA, df$value)
+  
+  # Date Conversion: The raw data is days since 1970-01-01. So we convert this to a date object, then extract the day of year (DOY)
+  date_vals <- as.Date("1970-01-01") + df$value
+  df$value  <- as.numeric(format(date_vals, "%j"))
+  
+  # We convert to terra raster. We use reproject = FALSE here because we want to merge the tiles in their native projection first to avoid artifacts.
+  terra_rast <- MODISTools::mt_to_terra(df, reproject = FALSE)
+  
+  return(terra_rast)
+}
+
+# We process all three tiles using the function
+r_north  <- process_modis_tile(tiles$north$file)
+r_middle <- process_modis_tile(tiles$middle$file)
+r_south  <- process_modis_tile(tiles$south$file)
+
+# We merge the tiles using terra::merge which combines rasters. If they overlap, it takes the value of the first one.
+r_modis_merged <- terra::merge(r_north, r_middle, r_south)
+
+# Now that we have one map, we project it to WGS84 (Lat/Lon) so it matches the coordinate system of the photoperiod model.
+r_modis_ll <- terra::project(r_modis_merged, "epsg:4326")
+```
+
+```{r}
+# We ensure that the photoperiod model has the correct CRS
+terra::crs(predicted_map) <- "epsg:4326"
+
+# We crop MODIS to fit the photoperiod model
+r_modis_final <- terra::crop(r_modis_ll, predicted_map)
+
+# Plotting
+
+p_model <- ggplot() +
+  geom_spatraster(data = predicted_map) +
+  scale_fill_viridis_c(name = "DOY", limits = c(90, 150), na.value = "transparent") +
+  labs(title = "Model Prediction (Photoperiod)") +
+  theme_bw()
+
+p_modis <- ggplot() +
+  geom_spatraster(data = r_modis_final) +
+  scale_fill_viridis_c(name = "DOY", limits = c(90, 150), na.value = "transparent") +
+  labs(title = "MODIS Observation (MCD12Q2)") +
+  theme_bw()
+
+# Combine plots
+p_model + p_modis
 ```
 
