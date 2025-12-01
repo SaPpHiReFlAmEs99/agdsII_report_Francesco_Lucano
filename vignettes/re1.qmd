@@ -19,6 +19,8 @@ library(MODISTools)
 library(ggplot2)
 library(tidyterra)
 library(patchwork)
+library(appeears)
+library(keyring)
 
 if (!dir.exists(here("data"))) {
   dir.create(here("data"))
@@ -297,11 +299,11 @@ plot(predicted_map,
 For the qualitative comparison with the 2012 map of predicted result from our photoperiod model, we used the MODIS MCD12Q2 land cover dynamics product, developed by Boston University. We specifically analyzed the 'Greenup_1' band, which indicates the date of the start of the first vegetation cycle, defined as the point where EVI2 crosses 15% of the seasonal amplitude. The raw data provided in 'days since 1970-01-01' was converted to Day of Year (DOY) for comparison with our model. Fill values (32767) representing water or barren land were filtered out.
 
 ```{r}
-# We define 3 tiles to cover the full latitude range because the API only allows 100x100km max tile size andWe define a list to loop through them.
+# We define 3 tiles to cover the full latitude range because the API only allows 100x100km max tile size and we define a list to loop through them.
 tiles <- list(
-  north  = list(lat = 43.8, lon = -71.0, file = here("data", "modis_north.csv")),
+  north  = list(lat = 44.0, lon = -71.0, file = here("data", "modis_north.csv")),
   middle = list(lat = 43.0, lon = -71.0, file = here("data", "modis_middle.csv")),
-  south  = list(lat = 42.2, lon = -71.0, file = here("data", "modis_south.csv"))
+  south  = list(lat = 42.0, lon = -71.0, file = here("data", "modis_south.csv"))
 )
 
 # We iterate through the list. For every tile, we check if the file already exists.
