@@ -29,15 +29,20 @@ if (!dir.exists(here("data"))) {
 
 ```{r}
 # Download the data
-phenocamr::download_phenocam(
-  site = "harvard$",      
-  veg_type = "DB",        # Deciduous broadleaf vegetation
-  roi_id = "1000",        # region ID
-  daymet = TRUE,          # Daymet weather data 
-  phenophase = TRUE,      # Phenophase dates
-  trim = 2022,            
-  out_dir = here("data")    
-)
+out_dir <- here("data")
+
+if (!file.exists(out_dir)) {
+  download.file(
+    phenocamr::download_phenocam(
+      site = "harvard$",      
+      veg_type = "DB",        # Deciduous broadleaf vegetation
+      roi_id = "1000",        # region ID
+      daymet = TRUE,          # Daymet weather data 
+      phenophase = TRUE,      # Phenophase dates
+      trim = 2022,            
+    )
+  )
+}
 ```
 
 ```{r}
@@ -152,7 +157,7 @@ The length of the day depends on latitude and the day of the year. We can use th
 
 ```{r}
 # The Photoperiod GDD Model
-model_photoperiod <- function(par, temp, latitude = 42.536669726040884) {
+model_photoperiod <- function(par, temp, latitude) {
   
   # We unpack the parameters. Now we have 3 parameters to optimize
   t_base <- par[1]      # Base temperature
@@ -181,7 +186,12 @@ model_photoperiod <- function(par, temp, latitude = 42.536669726040884) {
 
 ## The cost function
 
+This function measures how well the model predictions match observation of leaf-out dates. A lower RMSE means a better model fit.
+
 ```{r}
+
+harvard_latitude <- 42.536669726040884
+
 # We define the cost function
 rmse_photoperiod <- function(par, data) {
   
@@ -195,7 +205,8 @@ rmse_photoperiod <- function(par, data) {
     summarise(
       pred = model_photoperiod(
         par = par, 
-        temp = tmean  
+        temp = tmean,  
+        latitude = harvard_latitude
       )
     )
   
@@ -239,11 +250,11 @@ optim_result <- GenSA(
 # We extract the best parameters
 best_pars <- optim_result$par
 
-print("Optimal parameters:")
-print(paste("T_base:", round(best_pars[1], 2)))
-print(paste("F_crit:", round(best_pars[2], 2)))
-print(paste("k_photo:", round(best_pars[3], 2)))
-print(paste("Final RMSE:", round(optim_result$value, 3)))
+cat("Optimal parameters:\n")
+cat("T_base:", round(best_pars[1], 2), "\n")
+cat("F_crit:", round(best_pars[2], 2), "\n")
+cat("k_photo:", round(best_pars[3], 2), "\n")
+cat("Final RMSE:", round(optim_result$value, 3), "\n")
 ```
 
 # Spatial scaling
@@ -265,33 +276,80 @@ if (!file.exists(dest_file)) {
 # We load and prepare the data
 r_daymet <- terra::rast(dest_file)
 
+# We set the coordinate reference system
+terra::crs(r_daymet) <- "epsg:4326"
+
 # We calculate the Tmean for the map
 tmean_map <- (r_daymet["tmax"] + r_daymet["tmin"]) / 2
 
 # We limit to the first 180 days to save processing time because spring phenology happens in the first half of the year
 tmean_map <- subset(tmean_map, 1:180)
 
-# 4. We apply the model to every pixel and We use the parameters found in the optimization
-my_best_par <- c(3.23, 333.25, 8.3) 
-predicted_map <- terra::app(
-  x = tmean_map,           # The temperature layers
-  fun = function(x) { 
-    model_photoperiod(par = my_best_par, temp = x, latitude = 42.536669726040884)
-  }
-  #fun = model_photoperiod, # The custom function
-  #par = my_best_par,       # The optimized parameters
-  #latitude = 43.0          # The latitude for the Boston region
-)
+# We create a latitude raster using terra::init(). When we use "y" as the second argument, it fills each cell with its y-coordinate (which is latitude in our case).
+lat_raster <- terra::init(tmean_map[[1]], "y")
 
-minmax(predicted_map) # We check the minimum and the maximum values
+# We combine the 2 rasters (temperature and latitude) into one stack of 181 layers in total.
+#   - Layers 1 to 180: temperature for each day
+#   - Layer 181: latitude
+input_stack <- c(tmean_map, lat_raster)
 ```
 
 ```{r}
-# Result visualization 
-plot(predicted_map, 
-     main = "Predicted leaf-out date (Day of Year)", 
-     #col = map.pal("viridis", 100),
-     range = c(100, 150)) 
+# Now we we define a function to apply to each pixel that terra:app() can use that will receive the vector "x" of length 181. 
+# The function will:
+#   1. Extract temperature (first 180 values)
+#   2. Extract latitude (last value)
+#   3. Run the model
+#   4. Return the prediction
+
+apply_model_to_pixel <- function(x, par) {
+  
+  # We define the number of days (181-1 = 180) for each latitude
+  n_days <- length(x) - 1
+  
+  # We split the vector:
+  # - Temperature: positions 1 to 180
+  # - Latitude: position 181
+  temp <- x[1:n_days]
+  lat <- x[n_days + 1]
+  
+  # We filter missing data
+  if (any(is.na(temp)) || is.na(lat)) {
+    return(NA)
+  }
+  
+  # Run the photoperiod model with each pixel using the correct latitude
+  doy <- model_photoperiod(
+    par = par,
+    temp = temp,
+    latitude = lat
+  )
+  
+  return(doy)
+}
+```
+
+```{r}
+# We apply the model to every pixel using terra:app()
+predicted_map <- terra::app(
+  x = input_stack,
+  fun = apply_model_to_pixel,
+  par = best_pars  # We use the optimized parameters from the optimzation step           
+)
+
+# Check results
+cat("\nResults:\n")
+cat("  - Min predicted DOY:", round(minmax(predicted_map)[1]), "\n")
+cat("  - Max predicted DOY:", round(minmax(predicted_map)[2]), "\n")
+```
+
+```{r}
+# visualization 
+plot(
+  predicted_map,
+  main = " 2012 predicted leaf-out date photoperiod GDD model (day of year)",
+  range = c(100, 150)
+)
 ```
 
 # Qualitative validation
@@ -377,13 +435,13 @@ r_modis_final <- terra::crop(r_modis_ll, predicted_map)
 p_model <- ggplot() +
   geom_spatraster(data = predicted_map) +
   scale_fill_viridis_c(name = "DOY", limits = c(90, 150), na.value = "transparent") +
-  labs(title = "Model Prediction (Photoperiod)") +
+  labs(title = "Model prediction (Photoperiod)") +
   theme_bw()
 
 p_modis <- ggplot() +
   geom_spatraster(data = r_modis_final) +
   scale_fill_viridis_c(name = "DOY", limits = c(90, 150), na.value = "transparent") +
-  labs(title = "MODIS Observation (MCD12Q2)") +
+  labs(title = "MODIS observation (MCD12Q2)") +
   theme_bw()
 
 # Combine plots
