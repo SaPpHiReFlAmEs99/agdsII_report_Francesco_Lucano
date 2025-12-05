@@ -1,7 +1,12 @@
 ---
-title: "re1"
+title: "Report 8.2: Phenology"
+author: Francesco Lucano
 format: html
+engine: knitr
 editor: visual
+warning: false
+error: false
+toc: true
 ---
 
 # Setup
@@ -338,7 +343,7 @@ predicted_map <- terra::app(
 )
 
 # Check results
-cat("\nResults:\n")
+cat("\nResults GDD photoperiod model:\n")
 cat("  - Min predicted DOY:", round(minmax(predicted_map)[1]), "\n")
 cat("  - Max predicted DOY:", round(minmax(predicted_map)[2]), "\n")
 ```
@@ -354,7 +359,7 @@ plot(
 
 # Qualitative validation
 
-For the qualitative comparison with the 2012 map of predicted result from our photoperiod model, we used the MODIS MCD12Q2 land cover dynamics product, developed by Boston University. We specifically analyzed the 'Greenup_1' band, which indicates the date of the start of the first vegetation cycle, defined as the point where EVI2 crosses 15% of the seasonal amplitude. The raw data provided in 'days since 1970-01-01' was converted to Day of Year (DOY) for comparison with our model. Fill values (32767) representing water or barren land were filtered out.
+For the qualitative comparison with the 2012 map of predicted result from our photoperiod model, we used the MODIS MCD12Q2 land cover dynamics product, developed by Boston University. This remote sensing product quantifies land surface phenology at a spatial resolution of 500m the time series of the 2-band Enhanced Vegetation Index (EVI2) derived from MODIS NBAR data. We analyzed the 'Greenup.Num_Modes_01' band, which indicates the date of the start of the first vegetation cycle (by dectecting the greenness increase), defined as the point where EVI2 crosses 15% of the seasonal amplitude. The raw data provided in days since 01-01-1970 was converted to Day of Year (DOY) for comparison with our photoperiod model. Fill values (32767) representing water or barren land were filtered out (Friedl et al., 2019).
 
 ```{r}
 # We define 3 tiles to cover the full latitude range because the API only allows 100x100km max tile size and we define a list to loop through them.
@@ -405,6 +410,9 @@ process_modis_tile <- function(file_path) {
   date_vals <- as.Date("1970-01-01") + df$value
   df$value  <- as.numeric(format(date_vals, "%j"))
   
+  # We filter out spurious spring phenology dates after 200 days
+  df$value <- ifelse(df$value > 200, NA, df$value)
+  
   # We convert to terra raster. We use reproject = FALSE here because we want to merge the tiles in their native projection first to avoid artifacts.
   terra_rast <- MODISTools::mt_to_terra(df, reproject = FALSE)
   
@@ -434,17 +442,45 @@ r_modis_final <- terra::crop(r_modis_ll, predicted_map)
 
 p_model <- ggplot() +
   geom_spatraster(data = predicted_map) +
-  scale_fill_viridis_c(name = "DOY", limits = c(90, 150), na.value = "transparent") +
+  scale_fill_viridis_c(name = "DOY", limits = c(50, 150), na.value = "transparent") +
   labs(title = "Model prediction (Photoperiod)") +
   theme_bw()
 
 p_modis <- ggplot() +
   geom_spatraster(data = r_modis_final) +
-  scale_fill_viridis_c(name = "DOY", limits = c(90, 150), na.value = "transparent") +
+  scale_fill_viridis_c(name = "DOY", limits = c(50, 150), na.value = "transparent") +
   labs(title = "MODIS observation (MCD12Q2)") +
   theme_bw()
 
 # Combine plots
 p_model + p_modis
+
+# Check results
+cat("\nResults MODIS MCD12Q2:\n")
+cat("  - Min predicted DOY:", round(minmax(r_modis_final)[1]), "\n")
+cat("  - Max predicted DOY:", round(minmax(r_modis_final)[2]), "\n")
 ```
 
+## Discussion
+
+The year 2012 has been an emblematic year for phenology studies. According to Ault et al. (2013) spring 2012 was the earliest on record for the contiguous United States since systematic weather observations began in 1900. March 2012 recorded exceptionally warms temperatures becuase of a very strong and stable high-pressure system. This caused the onset of spring to occurs 20-30 days ahead of climatological expectations across much of the central and eastern United States, including our Boston-New England study region.
+
+The consequence of this is called a "false spring" which brought vegetation out of dormancy prematurely, rendering it vulnerable to subsequent late frost events. Indeed, the unusually early spring of 2012 was followed by damaging but climatically normal hard freezes in April in the Great Lakes region and in the northeast (where our study region is located). So our model is tested on an edge case with very early leaf-out during an extreme year.
+
+Now comparing the MODIS MCD12Q2 satellite observation and the GDD photoperiod model prediction we observe that both products show earlier earlier leaf-out (lower DOY values) in the southeastern coastal areas and later leaf-out (higher DOY values)in the northwestern mountainous regions, which is the expected effect of the altitude.
+
+However, several notable differences exist between the two products:
+
+-   **Spatial smoothness:** The model predictions appear smoother and more continuous, while the MODIS observations show greater variability. This is expected because our model uses gridded climate data (DAYMET) which is itself interpolated, whereas MODIS directly observes each pixel and could be subject to local variations in vegetation composition, land cover heterogeneity, and observation noise.
+-   **Missing data patterns**: The MODIS observations show more NA values (blank areas), particularly over water bodies, urban development, or mixed land cover where the phenology algorithm cannot reliably detect vegetation cycles.
+-   **Early leaf-out:** The comparison reveals a big difference in the minimum predicted dates: the MODIS product detects greenup as early as DOY 54 (late February) in some pixels, while our photoperiod model earliest prediction is DOY 102 (mid-April). Both products agree on the maximum values (DOY 145), indicating similar predictions for the latest leaf-out in the mountains.
+
+These differences can be explained by the role of photoperiod. As we explained before, a key advantage of incorporating photoperiod into phenology modelsis to prevent abnormally earlier leaf-out due to warm periods with short days because plants use day length as a safety mechanism. However this simple single parameter model is probably according too much weight to the photoperiod mechanism and it's not flexible enough to produce premature greenups when stable high-pressure systems cause long period of warm temperature in winter.
+
+Another factor that could explain later leaf-out of the model is the heterogeneity of the land cover.Our photoperiod model applies the same parameters (calibrated for deciduous broadleaf forest at Harvard Forest) uniformly across the region. However, the study area contains a mixture of vegetation types including coniferous forests, mixed forests, agricultural lands, and urban areas. Each vegetation type has different phenological characteristics that our single parameter model cannot capture. MODIS, by directly observing surface greenness, inherently accounts for this heterogeneity.
+
+# References
+
+Ault, T. R., et al. ‘The False Spring of 2012, Earliest in North American Record’. Eos, Transactions American Geophysical Union, vol. 94, no. 20, May 2013, pp. 181–82. DOI.org (Crossref), https://doi.org/10.1002/2013EO200001.
+
+Friedl, M., Gray, J., &amp; Sulla-Menashe, D. (2019). <i>MCD12Q2 MODIS/Terra+Aqua Land Cover Dynamics Yearly L3 Global 500m SIN Grid V006</i> [Data set]. NASA Land Processes Distributed Active Archive Center. https://doi.org/10.5067/MODIS/MCD12Q2.006 Date Accessed: 2025-12-04
