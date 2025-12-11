@@ -1,0 +1,36 @@
+---
+title: "Report 8.3: Land-cover"
+author: Francesco Lucano
+format: html
+engine: knitr
+editor: visual
+warning: false
+error: false
+toc: true
+---
+
+# Introduction
+
+Land-use and land-cover (LULC) maps aims to track land use its evolution. In order to improve classification accuracy, we are going to implement Supervised Machine Learning which improves on the general patterns identification offered by methods such as Unsupervised Clustering.
+
+In this report, we develop a supervised classification workflow to map land cover using MODIS spectral data. We would like to improve the baseline model which utilizes a standard XGBoost (Extreme Gradient Boosting) algorithm trained on raw spectral bands.
+
+# Proposed improvements
+
+To increase the accuracy and robustness of the LULC model, we are going to implement the following 2 improvements:
+
+## 1. Vegetation indices
+
+The baseline model relies solely on raw reflectance bands. Even if machine learning algorithms can learns non-linear relationships, providing explicits features can accelerates the learning and improves the discrimination.
+
+For this purpose, We will calculate and include NDVI (Normalized Difference Vegetation Index) and EVI (Enhanced Vegetation Index). It exploits the fundamental property of vegetation: chlorophyll absorbs visible red light for photosynthesis, while the cell structure of leaves strongly reflects near-infrared (NIR) light. It is highly effective at distinguishing vegetated areas (high values) from non-vegetated surfaces (low or negative values).However, it tends to saturate in very dense forests (high biomass), where the index saturates near 1.0 even as density increases.
+
+The formula used is: $$NDVI = \frac{\rho_{NIR} - \rho_{Red}}{\rho_{NIR} + \rho_{Red}}$$
+
+EVI is designed to optimize the vegetation signal in high biomass scenarios and reduce atmospheric effect. It includes the blue band to correct for aerosol scattering in the atmosphere and includes coefficients to adjust for the canopy background signal. Unlike NDVI, EVI does not saturate as easily in dense forests (like rain forests), making it superior for distinguishing between different forest types. But because it relies on the blue band (which is most sensitive to atmospheric scattering), it can be noisier if the atmospheric correction of the satellite data is imperfect.
+
+The formula used is: $$EVI = G \times \frac{\rho_{NIR} - \rho_{Red}}{\rho_{NIR} + C_1 \times \rho_{Red} - C_2 \times \rho_{Blue} + L}$$
+
+*Where* $G = 2.5$ (gain factor), $C_1 = 6$, $C_2 = 7.5$ (atmospheric resistance coefficients), and $L = 1$ (canopy background adjustment) following the MODIS-EVI algorithm (Huete et al., 2002).
+
+## 2. Spatial cross-validation (spatial CV)
