@@ -34,3 +34,19 @@ The formula used is: $$EVI = G \times \frac{\rho_{NIR} - \rho_{Red}}{\rho_{NIR} 
 *Where* $G = 2.5$ (gain factor), $C_1 = 6$, $C_2 = 7.5$ (atmospheric resistance coefficients), and $L = 1$ (canopy background adjustment) following the MODIS-EVI algorithm (Huete et al., 2002).
 
 ## 2. Spatial cross-validation (spatial CV)
+
+Standard K-fold cross-validation assumes that data points are independent. However, if we reference Tobler first law of geography, we have to consider that near things are more related than distant things, even if in the end everything is related to everything.
+
+In this perspective, we will implement spatial cross-validation, where the training data is split into geographic clusters (blocks) rather than random subsets. Random splitting allows training points to sit immediately adjacent to test points, leading to "spatial leakage" and overly optimistic accuracy estimates. Spatial CV forces the model to predict on geographically distinct regions, ensuring that the tuned hyperparameters generalize truly to new, unseen locations.
+
+# Additional improvements
+
+We list 2 additional improvements that we aren't going to implement:
+
+## 3. Algorithm selection (Random Forest vs. XGBoost)
+
+Algorithms have their own strengths and their performance depends on the specific data structure and noise profile. So an improvement could come from comparing the performance of random forest against gradient boosting. Random forest is an ensemble of bagging trees that could be more robust to noise and usually requires less aggressive tuning than boosting algorithms. By testing a different algorithm, we can determine which mathematical approach best captures the decision boundaries of this specific landscape.
+
+## 4. Removing correlated variables
+
+Satellite spectral bands often exhibit high multicollinearity (for example the Blue and Green bands often contain very similar information). In order to improve this aspect, we could apply a correlation filter within the preprocessing recipe to remove highly correlated predictors. By reducing multicollinearity we simplify the model, we reduce computational cost, and we force the algorithm to use unique sources of information. This prevents the model from splitting importance across redundant variables, potentially leading to a more stable and easier to interpret model.
