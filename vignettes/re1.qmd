@@ -24,8 +24,8 @@ library(MODISTools)
 library(ggplot2)
 library(tidyterra)
 library(patchwork)
-library(appeears)
-library(keyring)
+#library(appeears)
+#library(keyring)
 
 if (!dir.exists(here("data"))) {
   dir.create(here("data"))
@@ -33,19 +33,19 @@ if (!dir.exists(here("data"))) {
 ```
 
 ```{r}
-# Download the data
-out_dir <- here("data")
+# We define the path to the expected output file
+phenocam_file <- here("data", "harvard_DB_1000_3day.csv")
 
-if (!file.exists(out_dir)) {
-  download.file(
-    phenocamr::download_phenocam(
-      site = "harvard$",      
-      veg_type = "DB",        # Deciduous broadleaf vegetation
-      roi_id = "1000",        # region ID
-      daymet = TRUE,          # Daymet weather data 
-      phenophase = TRUE,      # Phenophase dates
-      trim = 2022,            
-    )
+# We only download if the file doesn't already exist
+if (!file.exists(phenocam_file)) {
+  phenocamr::download_phenocam(
+    site = "harvard$",
+    veg_type = "DB",
+    roi_id = "1000",
+    daymet = TRUE,
+    phenophase = TRUE,
+    trim = 2022,
+    out_dir = here("data")
   )
 }
 ```
@@ -264,7 +264,7 @@ cat("Final RMSE:", round(optim_result$value, 3), "\n")
 
 # Spatial scaling
 
-Now that we have the optimal parameters we need to apply this model to a map of temperature to observe the predicted leaf-out dates across the New England region. In order to do this we need to download the gridded daily temperature for the region and then run the `model_photoperiod` function on every pixel of that map.
+Now that we have the optimal parameters we need to apply this model to a map of temperature to observe the predicted leaf-out dates across the New England region. In order to do this we need to download the gridded daily temperature for the region and then run the `model_photoperiod` function on every pixel of that map. In this section, we used daily temperature data from DAYMET (Thornton et al., 2022), a gridded climate dataset at 1km resolution produced by NASA ORNL DAAC.
 
 ```{r}
 # We download the temperature raster data
@@ -484,3 +484,5 @@ Another factor that could explain later leaf-out of the model is the heterogenei
 Ault, T. R., et al. ‘The False Spring of 2012, Earliest in North American Record’. Eos, Transactions American Geophysical Union, vol. 94, no. 20, May 2013, pp. 181–82. DOI.org (Crossref), https://doi.org/10.1002/2013EO200001.
 
 Friedl, M., Gray, J., &amp; Sulla-Menashe, D. (2019). <i>MCD12Q2 MODIS/Terra+Aqua Land Cover Dynamics Yearly L3 Global 500m SIN Grid V006</i> [Data set]. NASA Land Processes Distributed Active Archive Center. https://doi.org/10.5067/MODIS/MCD12Q2.006 Date Accessed: 2025-12-04
+
+Thornton, M. M., Shrestha, R., Wei, Y., Thornton, P. E., &amp; Kao, S.-C. (2022). <i>Daymet: Daily Surface Weather Data on a 1-km Grid for North America, Version 4 R1</i> (Version 4.1). ORNL Distributed Active Archive Center. https://doi.org/10.3334/ORNLDAAC/2129 Date Accessed: 2025-12-13

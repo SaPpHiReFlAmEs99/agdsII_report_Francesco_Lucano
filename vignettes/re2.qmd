@@ -21,7 +21,7 @@ To increase the accuracy and robustness of the LULC model, we are going to imple
 
 ## 1. Vegetation indices
 
-The baseline model relies solely on raw reflectance bands. Even if machine learning algorithms can learns non-linear relationships, providing explicits features can accelerates the learning and improves the discrimination.
+The baseline model relies solely on raw reflectance bands. Even if machine learning algorithms can learns non-linear relationships, providing explicit features can accelerates the learning and improves the discrimination.
 
 For this purpose, We will calculate and include NDVI (Normalized Difference Vegetation Index) and EVI (Enhanced Vegetation Index). It exploits the fundamental property of vegetation: chlorophyll absorbs visible red light for photosynthesis, while the cell structure of leaves strongly reflects near-infrared (NIR) light. It is highly effective at distinguishing vegetated areas (high values) from non-vegetated surfaces (low or negative values).However, it tends to saturate in very dense forests (high biomass), where the index saturates near 1.0 even as density increases.
 
@@ -50,3 +50,245 @@ Algorithms have their own strengths and their performance depends on the specifi
 ## 4. Removing correlated variables
 
 Satellite spectral bands often exhibit high multicollinearity (for example the Blue and Green bands often contain very similar information). In order to improve this aspect, we could apply a correlation filter within the preprocessing recipe to remove highly correlated predictors. By reducing multicollinearity we simplify the model, we reduce computational cost, and we force the algorithm to use unique sources of information. This prevents the model from splitting importance across redundant variables, potentially leading to a more stable and easier to interpret model.
+
+# Implementation
+
+## Vegetation indices
+
+```{r}
+library(tidymodels)
+library(tidyverse)
+library(here)
+library(themis)
+library(parsnip)
+library(tune)
+library(dials)
+library(workflows)
+library(xgboost)
+library(doParallel)
+
+# Load data
+train_df <- readRDS(here("data", "training_data.rds"))
+```
+
+```{r}
+# We calculate the Median NDVI and EVI across the whole year for each pixel.
+indices_df <- train_df %>%
+  select(pixelID, contains("Band")) %>%
+  # Pivot longer to handle bands and dates
+  pivot_longer(
+    cols = -pixelID, 
+    names_to = c("band", "date"), 
+    names_pattern = ".*_Band([0-9])_(.*)"
+  ) %>%
+  # Pivot wider to get Band1, Band2, Band3 as columns
+  pivot_wider(names_from = band, values_from = value, names_prefix = "band_") %>%
+  
+  # We calculate Indices for every single day
+  mutate(
+    NDVI = (band_2 - band_1) / (band_2 + band_1),
+    EVI  = 2.5 * (band_2 - band_1) / (band_2 + 6 * band_1 - 7.5 * band_3 + 1)
+  ) %>%
+  
+  # We clean bad values (infinite/NaN)
+  mutate(
+    NDVI = ifelse(is.finite(NDVI), NDVI, NA),
+    EVI  = ifelse(is.finite(EVI), EVI, NA)
+  ) %>%
+  
+  # We calculate Median NDVI/EVI per pixel
+  group_by(pixelID) %>%
+  summarise(
+    median_NDVI = median(NDVI, na.rm = TRUE),
+    median_EVI  = median(EVI, na.rm = TRUE)
+  )
+
+# We join the features back to training Data
+train_df <- train_df %>%
+  left_join(indices_df, by = "pixelID")
+
+# Check if the new columns are there
+colnames(train_df) %>% tail()
+```
+
+```{r}
+# We convert LC1 to a factor
+train_df <- train_df %>%
+  mutate(LC1 = as.factor(LC1))
+
+# We define the recipe
+rec_spatial <- recipe(LC1 ~ ., data = train_df) %>%
+  
+  # We remove ID and metadata columns from the model
+  update_role(pixelID, lat, lon, new_role = "ID") %>% 
+  
+  # We handle class imbalance
+  step_downsample(LC1) %>%
+  
+  # We remove variables that have zero variance 
+  step_zv(all_predictors()) %>%
+  
+  # We normalize
+  step_normalize(all_numeric_predictors())
+
+# Check the recipe
+print(rec_spatial)
+```
+
+## Spatial cross-validation and tuning
+
+```{r}
+# We create 5 spatial blocks by using k-means on coordinates
+set.seed(456) 
+spatial_clustering <- kmeans(train_df[, c("lat", "lon")], centers = 5)
+
+# We add the block ID to the dataframe
+train_df$spatial_block <- as.factor(spatial_clustering$cluster)
+
+# We create the spatial fold. We split based on the block ID. Fold 1 will train on Blocks 1-4 and test on Block and so on.
+spatial_folds <- rsample::group_vfold_cv(train_df, group = spatial_block, v = 5)
+```
+
+```{r}
+# We define the model by tuning trees, tree depth, and learning rate
+xgb_model <- boost_tree(
+  trees = tune(),
+  min_n = tune(),
+  tree_depth = tune(),
+  learn_rate = tune()
+) %>%
+  set_engine("xgboost") %>%
+  set_mode("classification")
+
+# We bundle the recipe and the model
+xgb_workflow <- workflow() %>%
+  add_recipe(rec_spatial) %>%
+  add_model(xgb_model)
+
+# We define tuning grid 
+xgb_grid <- grid_latin_hypercube(
+  extract_parameter_set_dials(xgb_model),
+  size = 10  
+)
+
+# We define the path for saving results
+tuning_file <- here("data", "xgb_tuning_spatial.rds")
+
+# We check if results already exist
+if (file.exists(tuning_file)) {
+  
+  # We load pre-computed results
+  xgb_res_spatial <- readRDS(tuning_file)
+  
+} else {
+  
+  # We set up parallel processing for faster tuning
+  n_cores <- parallel::detectCores()
+
+  cl <- makeCluster(n_cores)
+  registerDoParallel(cl)
+  
+  # Run the tuning 
+  xgb_res_spatial <- tune_grid(
+    xgb_workflow,
+    resamples = spatial_folds,
+    grid = xgb_grid,
+    control = control_grid(save_pred = TRUE),
+    metrics = metric_set(accuracy, kap)
+  )
+  
+  # Stop the parallel processing
+  stopCluster(cl)
+  registerDoSEQ()  # Reset to sequential
+  
+  # Save results 
+  saveRDS(xgb_res_spatial, tuning_file)
+}
+
+# Show best results
+show_best(xgb_res_spatial, metric = "accuracy")
+```
+
+The result shows a best accuracy of 43.869%. This has been achieved with trees=1850 and a learning rate of 0.01. This is a low learning rate combined with a large number of trees. 
+
+## Best parameters and finalization of the model
+
+```{r}
+# We select the best parameters based on accuracy
+best_params <- select_best(xgb_res_spatial, metric = "accuracy")
+print(best_params)
+
+# We finalize the workflow with best parameters
+final_workflow <- finalize_workflow(xgb_workflow, best_params)
+
+# We trains the model on the full training data
+final_fit <- fit(final_workflow, data = train_df)
+```
+
+# Application of the improved LULC model on test data
+
+```{r}
+# Load test data
+test_df <- readRDS(here("data", "test_data.rds"))
+
+# Check structure
+dim(test_df)
+colnames(test_df) %>% head(20)
+```
+
+```{r}
+# We create pixelID using row numbers
+test_df <- test_df %>%
+  mutate(pixelID = row_number())
+
+# We calculate vegetation indices like before
+test_indices_df <- test_df %>%
+  select(pixelID, contains("Band")) %>%
+  pivot_longer(
+    cols = -pixelID, 
+    names_to = c("band", "date"), 
+    names_pattern = ".*_Band([0-9])_(.*)"
+  ) %>%
+  pivot_wider(names_from = band, values_from = value, names_prefix = "band_") %>%
+  mutate(
+    NDVI = (band_2 - band_1) / (band_2 + band_1),
+    EVI  = 2.5 * (band_2 - band_1) / (band_2 + 6 * band_1 - 7.5 * band_3 + 1)
+  ) %>%
+  mutate(
+    NDVI = ifelse(is.finite(NDVI), NDVI, NA),
+    EVI  = ifelse(is.finite(EVI), EVI, NA)
+  ) %>%
+  group_by(pixelID) %>%
+  summarise(
+    median_NDVI = median(NDVI, na.rm = TRUE),
+    median_EVI  = median(EVI, na.rm = TRUE)
+  )
+
+# We join back to test data
+test_df <- test_df %>%
+  left_join(test_indices_df, by = "pixelID")
+
+# Verify
+colnames(test_df) %>% tail(5)
+```
+
+```{r}
+# We add dummy columns for recipe compatibility
+test_df <- test_df %>%
+  mutate(
+    lat = NA_real_,
+    lon = NA_real_,
+    spatial_block = factor(NA)
+  )
+
+# We generate predictions
+predictions <- predict(final_fit, new_data = test_df)
+
+# We create and save submission
+submission <- tibble(
+  lulc_class = as.integer(as.character(predictions$.pred_class))
+)
+
+write_csv(submission, here("data", "SaPpHiReFlAmEs99.csv"))
+```
+
