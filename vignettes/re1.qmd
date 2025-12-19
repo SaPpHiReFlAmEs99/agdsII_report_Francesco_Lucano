@@ -24,8 +24,6 @@ library(MODISTools)
 library(ggplot2)
 library(tidyterra)
 library(patchwork)
-#library(appeears)
-#library(keyring)
 
 if (!dir.exists(here("data"))) {
   dir.create(here("data"))
@@ -477,12 +475,12 @@ However, several notable differences exist between the two products:
 
 These differences can be explained by the role of photoperiod. As we explained before, a key advantage of incorporating photoperiod into phenology modelsis to prevent abnormally earlier leaf-out due to warm periods with short days because plants use day length as a safety mechanism. However this simple single parameter model is probably according too much weight to the photoperiod mechanism and it's not flexible enough to produce premature greenups when stable high-pressure systems cause long period of warm temperature in winter.
 
-Another factor that could explain later leaf-out of the model is the heterogeneity of the land cover.Our photoperiod model applies the same parameters (calibrated for deciduous broadleaf forest at Harvard Forest) uniformly across the region. However, the study area contains a mixture of vegetation types including coniferous forests, mixed forests, agricultural lands, and urban areas. Each vegetation type has different phenological characteristics that our single parameter model cannot capture. MODIS, by directly observing surface greenness, inherently accounts for this heterogeneity.
+Another factor that could explain later leaf-out of the model is the heterogeneity of the land cover. Our photoperiod model applies the same parameters (calibrated for deciduous broadleaf forest at Harvard Forest) uniformly across the region. However, the study area contains a mixture of vegetation types including coniferous forests, mixed forests, agricultural lands, and urban areas. Each vegetation type has different phenological characteristics that our single parameter model cannot capture. MODIS, by directly observing surface greenness, inherently accounts for this heterogeneity.
 
 # References
 
 Ault, T. R., et al. ‘The False Spring of 2012, Earliest in North American Record’. Eos, Transactions American Geophysical Union, vol. 94, no. 20, May 2013, pp. 181–82. DOI.org (Crossref), https://doi.org/10.1002/2013EO200001.
 
-Friedl, M., Gray, J., &amp; Sulla-Menashe, D. (2019). <i>MCD12Q2 MODIS/Terra+Aqua Land Cover Dynamics Yearly L3 Global 500m SIN Grid V006</i> [Data set]. NASA Land Processes Distributed Active Archive Center. https://doi.org/10.5067/MODIS/MCD12Q2.006 Date Accessed: 2025-12-04
+Friedl, M., Gray, J., & Sulla-Menashe, D. (2019). <i>MCD12Q2 MODIS/Terra+Aqua Land Cover Dynamics Yearly L3 Global 500m SIN Grid V006</i> \[Data set\]. NASA Land Processes Distributed Active Archive Center. https://doi.org/10.5067/MODIS/MCD12Q2.006 Date Accessed: 2025-12-04
 
-Thornton, M. M., Shrestha, R., Wei, Y., Thornton, P. E., &amp; Kao, S.-C. (2022). <i>Daymet: Daily Surface Weather Data on a 1-km Grid for North America, Version 4 R1</i> (Version 4.1). ORNL Distributed Active Archive Center. https://doi.org/10.3334/ORNLDAAC/2129 Date Accessed: 2025-12-13
+Thornton, M. M., Shrestha, R., Wei, Y., Thornton, P. E., & Kao, S.-C. (2022). <i>Daymet: Daily Surface Weather Data on a 1-km Grid for North America, Version 4 R1</i> (Version 4.1). ORNL Distributed Active Archive Center. https://doi.org/10.3334/ORNLDAAC/2129 Date Accessed: 2025-12-13

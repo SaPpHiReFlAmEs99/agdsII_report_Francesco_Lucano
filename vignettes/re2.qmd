@@ -15,6 +15,39 @@ Land-use and land-cover (LULC) maps aims to track land use its evolution. In ord
 
 In this report, we develop a supervised classification workflow to map land cover using MODIS spectral data. We would like to improve the baseline model which utilizes a standard XGBoost (Extreme Gradient Boosting) algorithm trained on raw spectral bands.
 
+## Data description
+
+For this analysis, we use the MODIS MCD43A4 data product, which provides surface reflectance data that has been corrected for viewing angle effects. This product is produced by NASA Land Processes Distributed Active Archive Center (LP DAAC) and maintained by the MODIS Science Team (Schaaf & Wang, 2021).
+
+This is a combined product that merges observations from both Terra and Aqua satellites (the two platforms carrying MODIS instruments). The key feature of this product is the BRDF correction which role is to remove the effects of sun-sensor geometry, giving us reflectance values as if we were looking straight down at local solar noon. This makes comparisons across different dates and locations easier. The product is computed daily but uses a 16-day window of observations.
+
+### Spectral Bands
+
+MCD43A4 provides reflectance for MODIS Bands 1-7. For our vegetation indices (NDVI and EVI), we use the first three bands:
+
+| Band | Wavelength (nm) | Region | Role in our analysis |
+|------------------|------------------|------------------|------------------|
+| 1 | 620 - 670 | Red | Absorbed by chlorophyll → low values for vegetation |
+| 2 | 841 - 876 | Near-Infrared (NIR) | Reflected by leaf structure → high values for vegetation |
+| 3 | 459 - 479 | Blue | Used in EVI for atmospheric correction |
+| 4 | 545 - 565 | Green | — |
+| 5 | 1230 - 1250 | SWIR-1 | — |
+| 6 | 1628 - 1652 | SWIR-2 | — |
+| 7 | 2105 - 2155 | SWIR-3 | — |
+
+### Technical details
+
+-   **Spatial resolution:** 500 meters
+-   **Temporal resolution:** Daily (based on 16-day BRDF window)
+-   **Projection:** Sinusoidal
+-   **Scale factor:** 0.0001
+-   **Valid range:** 0 - 32766
+-   **Fill value:** 32767 (indicates missing or invalid data)
+
+### Validation Data
+
+Land cover labels were obtained from the Geo-Wiki crowdsourced dataset (Fritz et al., 2017), providing 10 land cover classes with 150 training locations per class.
+
 # Proposed improvements
 
 To increase the accuracy and robustness of the LULC model, we are going to implement the following 2 improvements:
@@ -35,7 +68,7 @@ The formula used is: $$EVI = G \times \frac{\rho_{NIR} - \rho_{Red}}{\rho_{NIR} 
 
 ## 2. Spatial cross-validation (spatial CV)
 
-Standard K-fold cross-validation assumes that data points are independent. However, if we reference Tobler first law of geography, we have to consider that near things are more related than distant things, even if in the end everything is related to everything.
+Standard K-fold cross-validation assumes that data points are independent. However, if we reference Tobler first law of geography: "Everything is related to everything else, but near things are more related than distant things" (Tobler, 1970).
 
 In this perspective, we will implement spatial cross-validation, where the training data is split into geographic clusters (blocks) rather than random subsets. Random splitting allows training points to sit immediately adjacent to test points, leading to "spatial leakage" and overly optimistic accuracy estimates. Spatial CV forces the model to predict on geographically distinct regions, ensuring that the tuned hyperparameters generalize truly to new, unseen locations.
 
@@ -66,12 +99,17 @@ library(dials)
 library(workflows)
 library(xgboost)
 library(doParallel)
+library(vip)
 
-# Load data
-train_df <- readRDS(here("data", "training_data.rds"))
+if (!dir.exists(here("data"))) {
+  dir.create(here("data"))
+}
 ```
 
 ```{r}
+# Load data
+train_df <- readRDS(here("data", "training_data.rds"))
+
 # We calculate the Median NDVI and EVI across the whole year for each pixel.
 indices_df <- train_df %>%
   select(pixelID, contains("Band")) %>%
@@ -209,20 +247,39 @@ if (file.exists(tuning_file)) {
 show_best(xgb_res_spatial, metric = "accuracy")
 ```
 
-The result shows a best accuracy of 43.869%. This has been achieved with trees=1850 and a learning rate of 0.01. This is a low learning rate combined with a large number of trees. 
+The result shows a best accuracy of 43.869%. This has been achieved with trees=1850 and a learning rate of 0.01. This is a low learning rate combined with a large number of trees.
 
 ## Best parameters and finalization of the model
 
 ```{r}
-# We select the best parameters based on accuracy
-best_params <- select_best(xgb_res_spatial, metric = "accuracy")
+# We define file paths to save the results
+best_params_file <- here("data", "xgb_best_params.rds")
+final_fit_file <- here("data", "xgb_final_fit.rds")
+
+# Check if we already have the best parameters
+if (file.exists(best_params_file) && file.exists(final_fit_file)) {
+  
+  best_params <- readRDS(best_params_file)
+  final_fit <- readRDS(final_fit_file)
+  
+} else {
+  
+  # We select the best parameters based on accuracy
+  best_params <- select_best(xgb_res_spatial, metric = "accuracy")
+  
+  # We finalize the workflow with best parameters
+  final_workflow <- finalize_workflow(xgb_workflow, best_params)
+  
+  # We train the model on the full training data
+  final_fit <- fit(final_workflow, data = train_df)
+  
+  # Save 
+ saveRDS(best_params, best_params_file)
+  saveRDS(final_fit, final_fit_file)
+}
+
+# Display results
 print(best_params)
-
-# We finalize the workflow with best parameters
-final_workflow <- finalize_workflow(xgb_workflow, best_params)
-
-# We trains the model on the full training data
-final_fit <- fit(final_workflow, data = train_df)
 ```
 
 # Application of the improved LULC model on test data
@@ -292,3 +349,116 @@ submission <- tibble(
 write_csv(submission, here("data", "SaPpHiReFlAmEs99.csv"))
 ```
 
+## Visualizations
+
+```{r}
+# We create class reference table
+class_labels <- tibble(
+  Class = 1:10,
+  `Land Cover Type` = c(
+    "Tree Cover",
+    "Shrub Cover", 
+    "Herbaceous Vegetation & Grassland",
+    "Cultivated and Managed",
+    "Mosaic: Managed & Natural Vegetation",
+    "Regularly Flooded & Wetland",
+    "Urban & Built Up",
+    "Snow and Ice",
+    "Barren",
+    "Open Water"
+  )
+)
+
+knitr::kable(class_labels, caption = "Land cover classes (Fritz et al., 2017)")
+
+# Confusion matrix from cross-validation
+conf_mat_resampled(xgb_res_spatial, parameters = best_params, tidy = FALSE) %>%
+  autoplot(type = "heatmap") +
+  labs(title = "Confusion matrix (Spatial Cross-Validation)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Variable importance
+final_fit %>%
+  extract_fit_parsnip() %>%
+  vip(num_features = 15) +
+  labs(title = "Top 15 most important features")
+
+# Spatial blocks visualization
+ggplot(train_df, aes(x = lon, y = lat, color = spatial_block)) +
+  geom_point(alpha = 0.6) +
+  labs(
+    title = "Spatial Cross-Validation blocks",
+    subtitle = "K-means clustering with 5 groups",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Block"
+  ) +
+  theme_bw()
+
+# Predicted class distribution
+ggplot(submission, aes(x = factor(lulc_class))) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Distribution of predicted land cover classes",
+    x = "LULC Class",
+    y = "Count"
+  ) +
+  theme_bw()
+```
+
+# Discussion
+
+## Model Performance
+
+Our XGBoost classifier achieved an overall accuracy of 43.9% using spatial cross-validation with k-means clustering.
+
+Usually, random cross-validation tends to produce overly optimistic accuracy estimates because it ignores spatial autocorrelation in the data (Roberts et al., 2017). When training and test pixels that are spatially close, they share similar spectral characteristics simply due to their proximity, leading to inflated accuracy metrics. Studies have shown that random cross-validation can overestimate model performance by up to 28% compared to spatial validation approaches (Kattenborn et al., 2022). Our spatial cross-validation forces the model to predict on geographically distinct regions, providing a more conservative assessment of generalization capability.
+
+## Confusion patterns
+
+Looking at the confusion matrix, we can identify which classes are most commonly confused:
+
+| Class | Land Cover Type | Interpretation |
+|-----------------|-----------------------------|---------------------------|
+| 1 | Tree cover | Forests, woodlands |
+| 2 | Shrub cover | Shrublands, bushlands |
+| 3 | Herbaceous vegetation and grassland | Grasslands, savannas |
+| 4 | Cultivated and managed | Agricultural lands, crops |
+| 5 | Mosaic: Managed and natural vegetation | Mixed agriculture/natural areas |
+| 6 | Regularly flooded and wetland | Wetlands, floodplains |
+| 7 | Urban and built up | Cities, infrastructure |
+| 8 | Snow and ice | Glaciers, permanent snow |
+| 9 | Barren | Deserts, bare rock, sand |
+| 10 | Open Water | Lakes, rivers, oceans |
+
+The confusion matrix reveals that certain pairs of classes are particularly difficult to distinguish. For instance, confusion between tree cover (1), shrub cover (2), and herbaceous vegetation (3) is common. This is not surprising because these vegetation types can show similar spectral signatures. Similarly, cultivated land (4) and mosaic vegetation (5) are often confused, as agricultural areas frequently contain patches of natural vegetation.
+
+Classes with distinctive spectral signatures, such as open water (10) and snow/ice (8), tend to show better classification performance. Water bodies have characteristic low reflectance across visible bands and very low NIR reflectance, while snow and ice have high reflectance across all bands (Huete et al., 2002).
+
+## Value of vegetation indices
+
+The variable importance plot demonstrates that the vegetation indices we have implemented (median_NDVI and median_EVI) rank among the top predictors. This validates our first improvement: while XGBoost can theoretically learn non-linear relationships from raw bands, providing explicit vegetation indices accelerates learning and improves discrimination (Huete et al., 2002).
+
+The high importance of the summer period reflects the peak of the growing season when vegetation differences are most pronounced. This temporal information is crucial for distinguishing between land cover types that may appear similar at other times of year and helps the efficacity of the vegetation indices.
+
+## Limitations
+
+I have identified principally 2 limitations:
+
+1.  **Spectral resolution**: We used only bands 1-3 from MCD43A4. The MODIS land cover product offers seven bands, so additional bands, would likely improve discrimination between vegetation types and built-up areas.
+
+2.  **Class imbalance**: The use of downsampling to address class imbalance may have reduced the amount of training data available for majority classes, potentially affecting overall model performance.
+
+# Bibliography
+
+Fritz, S., See, L., Perger, C., McCallum, I., Schill, C., Schepaschenko, D., Duerauer, M., Karner, M., Dresel, C., Laso-Bayas, J.-C., Lesiv, M., Moorthy, I., Salk, C. F., Danylo, O., Sturn, T., Albrecht, F., You, L., Kraxner, F., & Obersteiner, M. (2017). A global dataset of crowdsourced land cover and land use reference data. Scientific Data, 4(1), 170075. https://doi.org/10.1038/sdata.2017.75
+
+Huete, A., Didan, K., Miura, T., Rodriguez, E. P., Gao, X., & Ferreira, L. G. (2002). Overview of the radiometric and biophysical performance of the MODIS vegetation indices. Remote Sensing of Environment, 83(1), 195–213. https://doi.org/10.1016/S0034-4257(02)00096-2
+
+Kattenborn, T., Schiefer, F., Frey, J., Feilhauer, H., Mahecha, M. D., & Dormann, C. F. (2022a). Spatially autocorrelated training and validation samples inflate performance assessment of convolutional neural networks. ISPRS Open Journal of Photogrammetry and Remote Sensing, 5, 100018. https://doi.org/10.1016/j.ophoto.2022.100018
+
+Roberts, D. R., Bahn, V., Ciuti, S., Boyce, M. S., Elith, J., Guillera-Arroita, G., Hauenstein, S., Lahoz-Monfort, J. J., Schröder, B., Thuiller, W., Warton, D. I., Wintle, B. A., Hartig, F., & Dormann, C. F. (2017). Cross-validation strategies for data with temporal, spatial, hierarchical, or phylogenetic structure. Ecography, 40(8), 913–929. https://doi.org/10.1111/ecog.02881
+
+Schaaf, C., & Wang, Z. (2021). <i>MODIS/Terra+Aqua BRDF/Albedo Nadir BRDF Adjusted Ref Daily L3 Global - 500m V061</i> \[Data set\]. NASA Land Processes Distributed Active Archive Center. https://doi.org/10.5067/MODIS/MCD43A4.061 Date Accessed: 2025-12-18
+
+Tobler, W. R. (1970). A Computer Movie Simulating Urban Growth in the Detroit Region. Economic Geography, 46, 234–240. https://doi.org/10.2307/143141
