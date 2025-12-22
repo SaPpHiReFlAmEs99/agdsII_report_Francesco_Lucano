@@ -1,5 +1,5 @@
 ---
-title: "Report 8.2: Phenology"
+title: "Report 8.2: Phenology modelling"
 author: Francesco Lucano
 format: html
 engine: knitr

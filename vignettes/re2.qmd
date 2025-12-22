@@ -1,5 +1,5 @@
 ---
-title: "Report 8.3: Land-cover"
+title: "Report 8.3: Land-cover classification"
 author: Francesco Lucano
 format: html
 engine: knitr
@@ -26,7 +26,7 @@ This is a combined product that merges observations from both Terra and Aqua sat
 MCD43A4 provides reflectance for MODIS Bands 1-7. For our vegetation indices (NDVI and EVI), we use the first three bands:
 
 | Band | Wavelength (nm) | Region | Role in our analysis |
-|----|----|----|----|
+|------------------|------------------|------------------|------------------|
 | 1 | 620 - 670 | Red | Absorbed by chlorophyll → low values for vegetation |
 | 2 | 841 - 876 | Near-Infrared (NIR) | Reflected by leaf structure → high values for vegetation |
 | 3 | 459 - 479 | Blue | Used in EVI for atmospheric correction |
@@ -410,7 +410,7 @@ Usually, random cross-validation tends to produce overly optimistic accuracy est
 Looking at the confusion matrix, we can identify which classes are most commonly confused:
 
 | Class | Land Cover Type | Interpretation |
-|----|----|----|
+|------------------|----------------------------|--------------------------|
 | 1 | Tree cover | Forests, woodlands |
 | 2 | Shrub cover | Shrublands, bushlands |
 | 3 | Herbaceous vegetation and grassland | Grasslands, savannas |
