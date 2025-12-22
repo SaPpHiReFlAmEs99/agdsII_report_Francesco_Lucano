@@ -147,12 +147,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
 <span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyterra)</span>
 <span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(patchwork)</span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="co">#library(appeears)</span></span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="co">#library(keyring)</span></span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(<span class="fu">here</span>(<span class="st">"data"</span>))) {</span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">dir.create</span>(<span class="fu">here</span>(<span class="st">"data"</span>))</span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(<span class="fu">here</span>(<span class="st">"data"</span>))) {</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">dir.create</span>(<span class="fu">here</span>(<span class="st">"data"</span>))</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># We define the path to the expected output file</span></span>
@@ -263,6 +261,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="the-basic-ggd-model" class="level1">
 <h1>The basic GGD model</h1>
+<p>Here we show the basic GDD model for reference.</p>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>gdd_model <span class="ot">&lt;-</span> <span class="cf">function</span>(par, temp) {</span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  </span>
@@ -648,7 +647,7 @@ Results MODIS MCD12Q2:</code></pre>
 <li><strong>Early leaf-out:</strong> The comparison reveals a big difference in the minimum predicted dates: the MODIS product detects greenup as early as DOY 54 (late February) in some pixels, while our photoperiod model earliest prediction is DOY 102 (mid-April). Both products agree on the maximum values (DOY 145), indicating similar predictions for the latest leaf-out in the mountains.</li>
 </ul>
 <p>These differences can be explained by the role of photoperiod. As we explained before, a key advantage of incorporating photoperiod into phenology modelsis to prevent abnormally earlier leaf-out due to warm periods with short days because plants use day length as a safety mechanism. However this simple single parameter model is probably according too much weight to the photoperiod mechanism and it’s not flexible enough to produce premature greenups when stable high-pressure systems cause long period of warm temperature in winter.</p>
-<p>Another factor that could explain later leaf-out of the model is the heterogeneity of the land cover.Our photoperiod model applies the same parameters (calibrated for deciduous broadleaf forest at Harvard Forest) uniformly across the region. However, the study area contains a mixture of vegetation types including coniferous forests, mixed forests, agricultural lands, and urban areas. Each vegetation type has different phenological characteristics that our single parameter model cannot capture. MODIS, by directly observing surface greenness, inherently accounts for this heterogeneity.</p>
+<p>Another factor that could explain later leaf-out of the model is the heterogeneity of the land cover. Our photoperiod model applies the same parameters (calibrated for deciduous broadleaf forest at Harvard Forest) uniformly across the region. However, the study area contains a mixture of vegetation types including coniferous forests, mixed forests, agricultural lands, and urban areas. Each vegetation type has different phenological characteristics that our single parameter model cannot capture. MODIS, by directly observing surface greenness, inherently accounts for this heterogeneity.</p>
 </section>
 </section>
 <section id="references" class="level1">

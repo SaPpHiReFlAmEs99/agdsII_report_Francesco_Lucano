@@ -122,6 +122,8 @@ We can implement this by modifying the critical threshold (F\*). Plants need les
 
 # The basic GGD model
 
+Here we show the basic GDD model for reference.
+
 ```{r}
 gdd_model <- function(par, temp) {
   

@@ -13,11 +13,11 @@ toc: true
 
 Land-use and land-cover (LULC) maps aims to track land use its evolution. In order to improve classification accuracy, we are going to implement Supervised Machine Learning which improves on the general patterns identification offered by methods such as Unsupervised Clustering.
 
-In this report, we develop a supervised classification workflow to map land cover using MODIS spectral data. We would like to improve the baseline model which utilizes a standard XGBoost (Extreme Gradient Boosting) algorithm trained on raw spectral bands.
+In this report, we develop a supervised classification workflow to map land cover using MODIS spectral data with a 500m spatial resolution. We would like to improve the baseline model which utilizes a standard XGBoost (Extreme Gradient Boosting) algorithm trained on raw spectral bands.
 
 ## Data description
 
-For this analysis, we use the MODIS MCD43A4 data product, which provides surface reflectance data that has been corrected for viewing angle effects. This product is produced by NASA Land Processes Distributed Active Archive Center (LP DAAC) and maintained by the MODIS Science Team (Schaaf & Wang, 2021).
+For this analysis, we use the MODIS MCD43A4 data product, which provides surface reflectance data. This product is produced by NASA Land Processes Distributed Active Archive Center (LP DAAC) and maintained by the MODIS Science Team (Schaaf & Wang, 2021).
 
 This is a combined product that merges observations from both Terra and Aqua satellites (the two platforms carrying MODIS instruments). The key feature of this product is the BRDF correction which role is to remove the effects of sun-sensor geometry, giving us reflectance values as if we were looking straight down at local solar noon. This makes comparisons across different dates and locations easier. The product is computed daily but uses a 16-day window of observations.
 
@@ -26,7 +26,7 @@ This is a combined product that merges observations from both Terra and Aqua sat
 MCD43A4 provides reflectance for MODIS Bands 1-7. For our vegetation indices (NDVI and EVI), we use the first three bands:
 
 | Band | Wavelength (nm) | Region | Role in our analysis |
-|------------------|------------------|------------------|------------------|
+|----|----|----|----|
 | 1 | 620 - 670 | Red | Absorbed by chlorophyll → low values for vegetation |
 | 2 | 841 - 876 | Near-Infrared (NIR) | Reflected by leaf structure → high values for vegetation |
 | 3 | 459 - 479 | Blue | Used in EVI for atmospheric correction |
@@ -34,15 +34,6 @@ MCD43A4 provides reflectance for MODIS Bands 1-7. For our vegetation indices (ND
 | 5 | 1230 - 1250 | SWIR-1 | — |
 | 6 | 1628 - 1652 | SWIR-2 | — |
 | 7 | 2105 - 2155 | SWIR-3 | — |
-
-### Technical details
-
--   **Spatial resolution:** 500 meters
--   **Temporal resolution:** Daily (based on 16-day BRDF window)
--   **Projection:** Sinusoidal
--   **Scale factor:** 0.0001
--   **Valid range:** 0 - 32766
--   **Fill value:** 32767 (indicates missing or invalid data)
 
 ### Validation Data
 
@@ -419,7 +410,7 @@ Usually, random cross-validation tends to produce overly optimistic accuracy est
 Looking at the confusion matrix, we can identify which classes are most commonly confused:
 
 | Class | Land Cover Type | Interpretation |
-|-----------------|-----------------------------|---------------------------|
+|----|----|----|
 | 1 | Tree cover | Forests, woodlands |
 | 2 | Shrub cover | Shrublands, bushlands |
 | 3 | Herbaceous vegetation and grassland | Grasslands, savannas |

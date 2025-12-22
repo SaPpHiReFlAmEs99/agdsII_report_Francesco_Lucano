@@ -116,7 +116,6 @@ window.Quarto = {
   <li><a href="#data-description" id="toc-data-description" class="nav-link" data-scroll-target="#data-description">Data description</a>
   <ul class="collapse">
   <li><a href="#spectral-bands" id="toc-spectral-bands" class="nav-link" data-scroll-target="#spectral-bands">Spectral Bands</a></li>
-  <li><a href="#technical-details" id="toc-technical-details" class="nav-link" data-scroll-target="#technical-details">Technical details</a></li>
   <li><a href="#validation-data" id="toc-validation-data" class="nav-link" data-scroll-target="#validation-data">Validation Data</a></li>
   </ul></li>
   </ul></li>
@@ -181,10 +180,10 @@ window.Quarto = {
 <section id="introduction" class="level1">
 <h1>Introduction</h1>
 <p>Land-use and land-cover (LULC) maps aims to track land use its evolution. In order to improve classification accuracy, we are going to implement Supervised Machine Learning which improves on the general patterns identification offered by methods such as Unsupervised Clustering.</p>
-<p>In this report, we develop a supervised classification workflow to map land cover using MODIS spectral data. We would like to improve the baseline model which utilizes a standard XGBoost (Extreme Gradient Boosting) algorithm trained on raw spectral bands.</p>
+<p>In this report, we develop a supervised classification workflow to map land cover using MODIS spectral data with a 500m spatial resolution. We would like to improve the baseline model which utilizes a standard XGBoost (Extreme Gradient Boosting) algorithm trained on raw spectral bands.</p>
 <section id="data-description" class="level2">
 <h2 class="anchored" data-anchor-id="data-description">Data description</h2>
-<p>For this analysis, we use the MODIS MCD43A4 data product, which provides surface reflectance data that has been corrected for viewing angle effects. This product is produced by NASA Land Processes Distributed Active Archive Center (LP DAAC) and maintained by the MODIS Science Team (Schaaf &amp; Wang, 2021).</p>
+<p>For this analysis, we use the MODIS MCD43A4 data product, which provides surface reflectance data. This product is produced by NASA Land Processes Distributed Active Archive Center (LP DAAC) and maintained by the MODIS Science Team (Schaaf &amp; Wang, 2021).</p>
 <p>This is a combined product that merges observations from both Terra and Aqua satellites (the two platforms carrying MODIS instruments). The key feature of this product is the BRDF correction which role is to remove the effects of sun-sensor geometry, giving us reflectance values as if we were looking straight down at local solar noon. This makes comparisons across different dates and locations easier. The product is computed daily but uses a 16-day window of observations.</p>
 <section id="spectral-bands" class="level3">
 <h3 class="anchored" data-anchor-id="spectral-bands">Spectral Bands</h3>
@@ -249,17 +248,6 @@ window.Quarto = {
 </tr>
 </tbody>
 </table>
-</section>
-<section id="technical-details" class="level3">
-<h3 class="anchored" data-anchor-id="technical-details">Technical details</h3>
-<ul>
-<li><strong>Spatial resolution:</strong> 500 meters</li>
-<li><strong>Temporal resolution:</strong> Daily (based on 16-day BRDF window)</li>
-<li><strong>Projection:</strong> Sinusoidal</li>
-<li><strong>Scale factor:</strong> 0.0001</li>
-<li><strong>Valid range:</strong> 0 - 32766</li>
-<li><strong>Fill value:</strong> 32767 (indicates missing or invalid data)</li>
-</ul>
 </section>
 <section id="validation-data" class="level3">
 <h3 class="anchored" data-anchor-id="validation-data">Validation Data</h3>
@@ -752,9 +740,9 @@ window.Quarto = {
 <p>Looking at the confusion matrix, we can identify which classes are most commonly confused:</p>
 <table class="caption-top table">
 <colgroup>
-<col style="width: 23%">
-<col style="width: 39%">
-<col style="width: 36%">
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
 </colgroup>
 <thead>
 <tr class="header">
